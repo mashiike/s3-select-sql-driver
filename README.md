@@ -61,7 +61,7 @@ s3://<bucket>/<key>?<query>
 
 |name|description|default|
 |---|---|---|
-|format|object format (csv|tsv|json|json_lines|parquet)|file ext auto detect |
+|format|object format (csv,tsv,json,json_lines,parquet)|file ext auto detect |
 |compression_type|gzip or bzip, none|none|
 |input_serialization|input serialization base64 json|<nil>|
 |region|aws region|<nil>|
