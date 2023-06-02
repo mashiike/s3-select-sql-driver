@@ -15,11 +15,11 @@ for example:
 ```go 
 package main
 
-import(
+import (
 	"context"
 	"database/sql"
 	"log"
-    "time"
+	"time"
 
 	_ "github.com/mashiike/s3-select-sql-driver"
 )
@@ -37,19 +37,62 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-    defer rows.Close()
+	defer rows.Close()
 	for rows.Next() {
-        var timestamp time.Time
+		var timestamp time.Time
 		var message string
 		err := rows.Scan(&timestamp, &message)
 		if err != nil {
 			log.Println(err)
-			return
+			break
 		}
-		log.Printf("%s\t%s", teimstamp, message)
+		log.Printf("%s\t%s", timestamp, message)
 	}
 }
 ```
+
+### DSN format
+
+```
+s3://<bucket>/<key>?<query>
+```
+
+#### query parameters
+
+|name|description|default|
+|---|---|---|
+|format|object format (csv|tsv|json|json_lines|parquet)|file ext auto detect |
+|compression_type|gzip or bzip, none|none|
+|input_serialization|input serialization base64 json|<nil>|
+|region|aws region|<nil>|
+
+#### input serialization base64 json 
+
+if set complex format, you can set input serialization in DSN
+
+see also S3 Select [InputSerialization](https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectSELECTContent.html#RESTObjectSELECTContent-InputSerialization)
+
+```json
+{
+  "CSV": {
+    "FileHeaderInfo": "NONE",
+    "RecordDelimiter": "\n",
+    "FieldDelimiter": ",",
+    "QuoteCharacter": "\"",
+    "QuoteEscapeCharacter": "\"",
+    "Comments": "#",
+    "AllowQuotedRecordDelimiter": false
+  },
+  "CompressionType": "NONE"
+}
+```
+
+and can set DSN query parameter(json base64 encoded)
+
+```
+s3://example-com/hoge.csv?input_serialization=ewogICJDU1YiOiB7CiAgICAiRmlsZUhlYWRlckluZm8iOiAiTk9ORSIsCiAgICAiUmVjb3JkRGVsaW1pdGVyIjogIlxuIiwKICAgICJGaWVsZERlbGltaXRlciI6ICIsIiwKICAgICJRdW90ZUNoYXJhY3RlciI6ICJcIiIsCiAgICAiUXVvdGVFc2NhcGVDaGFyYWN0ZXIiOiAiXCIiLAogICAgIkNvbW1lbnRzIjogIiMiLAogICAgIkFsbG93UXVvdGVkUmVjb3JkRGVsaW1pdGVyIjogZmFsc2UKICB9LAogICJDb21wcmVzc2lvblR5cGUiOiAiTk9ORSIKfQo
+```
+
 
 ## LICENSE
 
