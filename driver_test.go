@@ -43,6 +43,14 @@ func runTestsWithDB(t *testing.T, dsn string, tests ...func(*testing.T, *sql.DB)
 }
 
 func TestAWS__SimpleCSVQuery(t *testing.T) {
+	if os.Getenv("TEST_BUCKET_NAME") == "" {
+		t.Log("TEST_BUCKET_NAME is empty")
+		t.SkipNow()
+	}
+	if os.Getenv("TEST_OBJECT_PATH_PREFIX") == "" {
+		t.Log("TEST_OBJECT_PATH_PREFIX is empty")
+		t.SkipNow()
+	}
 	dsn := (&S3SelectConfig{
 		BucketName: os.Getenv("TEST_BUCKET_NAME"),
 		ObjectKey:  os.Getenv("TEST_OBJECT_PATH_PREFIX") + "csv/",
