@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -361,5 +362,40 @@ func TestMock__FailedListObjectV2__AccessDeneided(t *testing.T) {
 		defer restore()
 		_, err := db.QueryContext(context.Background(), query)
 		require.EqualError(t, err, "AccessDenied: s3:ListObjects")
+	})
+}
+
+func TestMock__SuccessWithPlaceholder(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = ? AND s."user" = ?`
+	mockClients["success_with_placeholder"] = &mockS3SelectClient{
+		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
+			require.EqualValues(t,
+				`SELECT * FROM S3Object as s WHERE s."time" = '2020-01-01T00:00:00Z' AND s."user" = 'hoge'`,
+				string(*params.Expression),
+			)
+			fmt.Fprintf(w, "2020-01-01T00:00:00Z,hoge\n")
+			return nil
+		},
+	}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"success_with_placeholder"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			d, "hoge",
+		)
+		var time time.Time
+		var user string
+		require.NoError(t, row.Scan(&time, &user))
+		require.EqualValues(t, d, time)
+		require.Equal(t, "hoge", user)
 	})
 }

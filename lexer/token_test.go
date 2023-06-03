@@ -73,7 +73,7 @@ func TestLexer__WithNamedPlaceholder(t *testing.T) {
 	lexer := NewLexer(query)
 	tokens, err := lexer.Lex()
 	require.NoError(t, err)
-	expected := []Token{
+	expected := Tokens{
 		{Kind: KindIdentifier, Value: "SELECT"},
 		{Kind: KindSpace, Value: " "},
 		{Kind: KindIdentifier, Value: "s._2"},
@@ -107,6 +107,33 @@ func TestLexer__WithNamedPlaceholder(t *testing.T) {
 		{Kind: KindSymbol, Value: "="},
 		{Kind: KindSpace, Value: " "},
 		{Kind: KindString, Value: "'hoge?'"},
+		{Kind: KindEOF, Value: ""},
+	}
+	require.EqualValues(t, expected, tokens)
+	require.Equal(t, query, tokens.String())
+}
+
+func TestLexer__TableNameWithPath(t *testing.T) {
+	query := "SELECT * FROM S3Object[*].hoge as s"
+	lexer := NewLexer(query)
+	tokens, err := lexer.Lex()
+	require.NoError(t, err)
+	expected := Tokens{
+		{Kind: KindIdentifier, Value: "SELECT"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindSymbol, Value: "*"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "FROM"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "S3Object"},
+		{Kind: KindSymbol, Value: "["},
+		{Kind: KindSymbol, Value: "*"},
+		{Kind: KindSymbol, Value: "]"},
+		{Kind: KindIdentifier, Value: ".hoge"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "as"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "s"},
 		{Kind: KindEOF, Value: ""},
 	}
 	require.EqualValues(t, expected, tokens)
