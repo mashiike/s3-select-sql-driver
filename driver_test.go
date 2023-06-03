@@ -415,6 +415,30 @@ func TestMock__FailedListObjectV2__AccessDeneided(t *testing.T) {
 	})
 }
 
+func TestMock__SuccessWithPlaceholder__SQLInjection(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = ? AND s."user" = ?`
+	mockClients["success_with_placeholder"] = &mockS3SelectClient{
+		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
+			require.EqualValues(t,
+				`SELECT * FROM S3Object as s WHERE s."time" = '2020-01-01T00:00:00Z' AND s."user" = 'hoge'' OR 1=1 --'`,
+				string(*params.Expression),
+			)
+			return nil
+		},
+	}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		Params:     url.Values{"mock": []string{"success_with_placeholder"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		_, err := db.QueryContext(context.Background(), query, "2020-01-01T00:00:00Z", `hoge' OR 1=1 --`)
+		require.NoError(t, err)
+	})
+}
 func TestMock__SuccessWithPlaceholder(t *testing.T) {
 	query := `SELECT * FROM S3Object as s WHERE s."time" = ? AND s."user" = ?`
 	mockClients["success_with_placeholder"] = &mockS3SelectClient{
