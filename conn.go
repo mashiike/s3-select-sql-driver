@@ -7,6 +7,9 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -136,7 +139,11 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 		return nil, err
 	}
 	debugLogger.Printf("complete s3 select: rows=%d", len(rows))
-	return newRows(rows), nil
+	var parseTime bool
+	if conn.cfg.ParseTime != nil {
+		parseTime = *conn.cfg.ParseTime
+	}
+	return newRows(rows, parseTime), nil
 }
 
 func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args []driver.NamedValue, contentCh <-chan contentInfo, w io.Writer) error {

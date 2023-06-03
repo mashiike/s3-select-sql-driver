@@ -4,18 +4,21 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/samber/lo"
 )
 
 type s3SelectRows struct {
-	rows  [][]string
-	index int
+	parseTime bool
+	rows      [][]string
+	index     int
 }
 
-func newRows(rows [][]string) *s3SelectRows {
+func newRows(rows [][]string, parseTime bool) *s3SelectRows {
 	return &s3SelectRows{
-		rows: rows,
+		parseTime: parseTime,
+		rows:      rows,
 	}
 }
 
@@ -38,10 +41,28 @@ func (rows *s3SelectRows) Next(dest []driver.Value) error {
 	}
 	row := rows.rows[rows.index]
 	for i := range dest {
+		if i >= len(row) {
+			dest[i] = nil
+			continue
+		}
+		if rows.parseTime {
+			if t, ok := parseTime(row[i]); ok {
+				dest[i] = t
+				continue
+			}
+		}
 		if i < len(row) {
 			dest[i] = row[i]
 		}
 	}
 	rows.index++
 	return nil
+}
+
+func parseTime(s string) (time.Time, bool) {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
 }
