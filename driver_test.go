@@ -321,3 +321,45 @@ func TestMock__SuccessSingleObject(t *testing.T) {
 		}, actual)
 	})
 }
+
+func TestMock__FailedSelectObjectContent(t *testing.T) {
+	query := `SELECT * FROM S3Object`
+	mockClients["failed_select_object_content"] = &mockS3SelectClient{
+		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
+			return errors.New("select object content failed")
+		},
+	}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		Params:     url.Values{"mock": []string{"failed_select_object_content"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		_, err := db.QueryContext(context.Background(), query)
+		require.EqualError(t, err, "select object content failed")
+	})
+}
+
+func TestMock__FailedListObjectV2__AccessDeneided(t *testing.T) {
+	query := `SELECT * FROM S3Object`
+	mockClients["failed_list_object_v2_access_denied"] = &mockS3SelectClient{
+		ListObjectsV2Func: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			return nil, errors.New("AccessDenied: s3:ListObjects")
+		},
+	}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/",
+		Format:     S3SelectFormatCSV,
+		Params:     url.Values{"mock": []string{"failed_list_object_v2_access_denied"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		_, err := db.QueryContext(context.Background(), query)
+		require.EqualError(t, err, "AccessDenied: s3:ListObjects")
+	})
+}
