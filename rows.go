@@ -60,9 +60,17 @@ func (rows *s3SelectRows) Next(dest []driver.Value) error {
 }
 
 func parseTime(s string) (time.Time, bool) {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return time.Time{}, false
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, true
 	}
-	return t, true
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
 }
