@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -39,6 +40,7 @@ type S3SelectConfig struct {
 	Format             S3SelectFormat
 	CompressionType    S3SelectCompressionType
 	InputSilialization *types.InputSerialization
+	ParseTime          *bool
 	Params             url.Values
 	S3OptFns           []func(*s3.Options)
 }
@@ -69,6 +71,11 @@ func (cfg *S3SelectConfig) String() string {
 		params.Add("compression_type", string(cfg.CompressionType))
 	} else {
 		params.Del("compression_type")
+	}
+	if cfg.ParseTime != nil {
+		params.Add("parse_time", strconv.FormatBool(*cfg.ParseTime))
+	} else {
+		params.Del("parse_time")
 	}
 	if cfg.InputSilialization != nil {
 		bs, err := json.Marshal(cfg.InputSilialization)
@@ -122,6 +129,14 @@ func (cfg *S3SelectConfig) setParams(params url.Values) error {
 		comporessionTypeSet = true
 	} else {
 		cfg.CompressionType = S3SelectCompressionTypeNone
+	}
+	if params.Has("parse_time") {
+		parseTime, err := strconv.ParseBool(params.Get("parse_time"))
+		if err != nil {
+			return fmt.Errorf("parse parse_time: %w", err)
+		}
+		cfg.ParseTime = &parseTime
+		cfg.Params.Del("parse_time")
 	}
 	var inputSerializationSet bool
 	if params.Has("input_serialization") {

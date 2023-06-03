@@ -5,12 +5,17 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/mashiike/s3-select-sql-driver/lexer"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -64,6 +69,15 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 	if conn.isClosed {
 		return nil, sql.ErrConnDone
 	}
+	if len(args) > 0 {
+		var err error
+		query, err = conn.rewriteQuery(query, args)
+		if err != nil {
+			return nil, err
+		}
+		debugLogger.Printf("rewrited query: %s", query)
+	}
+
 	eg, egctx := errgroup.WithContext(ctx)
 	contentCh := make(chan contentInfo, 100)
 	pr, pw := io.Pipe()
@@ -136,7 +150,11 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 		return nil, err
 	}
 	debugLogger.Printf("complete s3 select: rows=%d", len(rows))
-	return newRows(rows), nil
+	var parseTime bool
+	if conn.cfg.ParseTime != nil {
+		parseTime = *conn.cfg.ParseTime
+	}
+	return newRows(rows, parseTime), nil
 }
 
 func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args []driver.NamedValue, contentCh <-chan contentInfo, w io.Writer) error {
@@ -174,4 +192,96 @@ func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args
 
 func (conn *s3SelectConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	return nil, fmt.Errorf("exec %w", ErrNotSupported)
+}
+
+func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (string, error) {
+	l := lexer.NewLexer(query)
+	tokens, err := l.Lex()
+	if err != nil {
+		return "", err
+	}
+	var isNamedArgs, isOrdinalArgs bool
+	argsByName := make(map[string]driver.NamedValue)
+	usedByName := make(map[string]bool, len(args))
+	for _, arg := range args {
+		if arg.Name == "" {
+			isOrdinalArgs = true
+			continue
+		}
+		isNamedArgs = true
+		argsByName[":"+arg.Name] = arg
+	}
+	if isNamedArgs && isOrdinalArgs {
+		return "", fmt.Errorf("cannot use both named and ordinal parameters")
+	}
+	var builder strings.Builder
+	var i int
+	for _, token := range tokens {
+		switch token.Kind {
+		case lexer.KindNamedPlaceholder:
+			if !isNamedArgs {
+				return "", errors.New("required named parameter, but ordinal parameter is given")
+			}
+			arg, ok := argsByName[token.Value]
+			if !ok {
+				return "", fmt.Errorf("missing named parameter: %s", strings.TrimPrefix(token.Value, ":"))
+			}
+			s, err := conn.convertNamedArgToString(arg)
+			if err != nil {
+				return "", err
+			}
+			usedByName[token.Value] = true
+			builder.WriteString(s)
+		case lexer.KindPlaceholder:
+			if !isOrdinalArgs {
+				return "", errors.New("required ordinal parameter, but named parameter is given")
+			}
+			if i >= len(args) {
+				return "", fmt.Errorf("required %d parameters, but %d parameters are given", i+1, len(args))
+			}
+			arg := args[i]
+			i++
+			s, err := conn.convertNamedArgToString(arg)
+			if err != nil {
+				return "", fmt.Errorf("failed to convert parameter %d: %w", i, err)
+			}
+			builder.WriteString(s)
+		case lexer.KindEOF:
+			if isOrdinalArgs && i < len(args) {
+				return "", fmt.Errorf("required %d parameters, but %d parameters are given", i, len(args))
+			}
+			if isNamedArgs {
+				for _, arg := range args {
+					if !usedByName[":"+arg.Name] {
+						return "", fmt.Errorf("named parameter is not used: %s", arg.Name)
+					}
+				}
+			}
+			return builder.String(), nil
+		default:
+			builder.WriteString(token.Value)
+		}
+	}
+	return "", fmt.Errorf("unexpected EOF query: %s", query)
+}
+
+func (conn *s3SelectConn) convertNamedArgToString(arg driver.NamedValue) (string, error) {
+	switch v := arg.Value.(type) {
+	case string:
+		return `'` + v + `'`, nil
+	case []byte:
+		return `'` + string(v) + `'`, nil
+	case int64:
+		return strconv.FormatInt(v, 10), nil
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	case time.Time:
+		return `'` + v.Format(time.RFC3339) + `'`, nil
+	case nil:
+		return "NULL", nil
+	default:
+		return "", fmt.Errorf("unsupported parameter type: %T", v)
+	}
 }

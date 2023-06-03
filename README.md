@@ -51,6 +51,30 @@ func main() {
 }
 ```
 
+### Placeholders
+
+S3 Select SQL driver supports placeholders.
+
+for example, can use ordinal placeholders
+
+```go
+rows, err := db.QueryContext(
+    context.Background(),
+    `SELECT timestamp, message FROM s3object s WHERE timestamp > ?`,
+    time.Now().Add(-time.Hour),
+)
+```
+
+and named placeholders
+
+```go
+rows, err := db.QueryContext(
+    context.Background(),
+    `SELECT timestamp, message FROM s3object s WHERE timestamp > :timestamp`,
+    sql.Named("timestamp", time.Now().Add(-time.Hour)),
+)
+```
+
 ### DSN format
 
 ```
@@ -63,6 +87,7 @@ s3://<bucket>/<key>?<query>
 |---|---|---|
 |format|object format (csv,tsv,json,json_lines,parquet)|file ext auto detect |
 |compression_type|gzip or bzip, none|none|
+|parse_time|parse time column|false|
 |input_serialization|input serialization base64 json|<nil>|
 |region|aws region|<nil>|
 

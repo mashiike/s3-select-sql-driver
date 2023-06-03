@@ -1,0 +1,3 @@
+{"time":"2020-01-01T00:00:00Z","message":"Hello Cecily!","status":200,"ttl":0.5}
+{"time":"2020-01-02T00:00:02Z","message":"Hello Athena!","status":400,"ttl":0.6}
+{"time":"2020-01-03T00:00:02Z","message":"Hello Janna!","status":400,"ttl":0.9}

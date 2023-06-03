@@ -1,0 +1,3 @@
+{"time":"2020-01-01T00:00:00Z","message":"Hello World!","status":200,"ttl":0.5}
+{"time":"2020-02-01T00:00:02Z","message":"Hello Hoge!","status":400,"ttl":0.6}
+{"time":"2020-03-01T00:00:02Z","message":"Hello Fuga!","status":400,"ttl":0.9}
