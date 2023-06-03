@@ -268,9 +268,9 @@ func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (
 func (conn *s3SelectConn) convertNamedArgToString(arg driver.NamedValue) (string, error) {
 	switch v := arg.Value.(type) {
 	case string:
-		return `'` + v + `'`, nil
+		return `'` + strings.ReplaceAll(v, "'", "''") + `'`, nil
 	case []byte:
-		return `'` + string(v) + `'`, nil
+		return `'` + strings.ReplaceAll(string(v), "'", "''") + `'`, nil
 	case int64:
 		return strconv.FormatInt(v, 10), nil
 	case float64:
