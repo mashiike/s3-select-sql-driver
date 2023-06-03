@@ -75,6 +75,7 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 		if err != nil {
 			return nil, err
 		}
+		debugLogger.Printf("rewrited query: %s", query)
 	}
 
 	eg, egctx := errgroup.WithContext(ctx)
