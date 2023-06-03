@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -200,13 +201,14 @@ func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (
 	}
 	var isNamedArgs, isOrdinalArgs bool
 	argsByName := make(map[string]driver.NamedValue)
+	usedByName := make(map[string]bool, len(args))
 	for _, arg := range args {
 		if arg.Name == "" {
 			isOrdinalArgs = true
 			continue
 		}
 		isNamedArgs = true
-		argsByName[arg.Name] = arg
+		argsByName[":"+arg.Name] = arg
 	}
 	if isNamedArgs && isOrdinalArgs {
 		return "", fmt.Errorf("cannot use both named and ordinal parameters")
@@ -217,23 +219,24 @@ func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (
 		switch token.Kind {
 		case lexer.KindNamedPlaceholder:
 			if !isNamedArgs {
-				return "", fmt.Errorf("unexpected named placeholder: %s", token.Value)
+				return "", errors.New("required named parameter, but ordinal parameter is given")
 			}
 			arg, ok := argsByName[token.Value]
 			if !ok {
-				return "", fmt.Errorf("missing named placeholder: %s", token.Value)
+				return "", fmt.Errorf("missing named parameter: %s", strings.TrimPrefix(token.Value, ":"))
 			}
 			s, err := conn.convertNamedArgToString(arg)
 			if err != nil {
 				return "", err
 			}
+			usedByName[token.Value] = true
 			builder.WriteString(s)
 		case lexer.KindPlaceholder:
 			if !isOrdinalArgs {
-				return "", fmt.Errorf("unexpected ordinal placeholder, parameter name is required: %s", token.Value)
+				return "", errors.New("required ordinal parameter, but named parameter is given")
 			}
 			if i >= len(args) {
-				return "", fmt.Errorf("required %d parameters, but got %d", i+1, len(args))
+				return "", fmt.Errorf("required %d parameters, but %d parameters are given", i+1, len(args))
 			}
 			arg := args[i]
 			i++
@@ -243,6 +246,16 @@ func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (
 			}
 			builder.WriteString(s)
 		case lexer.KindEOF:
+			if isOrdinalArgs && i < len(args) {
+				return "", fmt.Errorf("required %d parameters, but %d parameters are given", i, len(args))
+			}
+			if isNamedArgs {
+				for _, arg := range args {
+					if !usedByName[":"+arg.Name] {
+						return "", fmt.Errorf("named parameter is not used: %s", arg.Name)
+					}
+				}
+			}
 			return builder.String(), nil
 		default:
 			builder.WriteString(token.Value)

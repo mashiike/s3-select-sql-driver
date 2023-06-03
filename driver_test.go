@@ -399,3 +399,206 @@ func TestMock__SuccessWithPlaceholder(t *testing.T) {
 		require.Equal(t, "hoge", user)
 	})
 }
+
+func TestMock__FailedWithPlaceholder__MissingParameter(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = ? AND s."user" = ?`
+	mockClients["failed_with_placeholder_missing_parameter"] = &mockS3SelectClient{}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"failed_with_placeholder_missing_parameter"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			d,
+		)
+		var time time.Time
+		var user string
+		require.EqualError(t, row.Scan(&time, &user), "required 2 parameters, but 1 parameters are given")
+	})
+}
+
+func TestMock__FailedWithPlaceholder__MissmatchParameter(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = ? AND s."user" = ?`
+	mockClients["failed_with_placeholder_missmatch_parameter"] = &mockS3SelectClient{}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"failed_with_placeholder_missmatch_parameter"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			d, "hoge", "fuga",
+		)
+		var time time.Time
+		var user string
+		require.EqualError(t, row.Scan(&time, &user), "required 2 parameters, but 3 parameters are given")
+	})
+}
+
+func TestMock__FailedWithPlaceholder__InvalidParameter(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = ? AND s."user" = ?`
+	mockClients["failed_with_placeholder_invalid_parameter"] = &mockS3SelectClient{}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"failed_with_placeholder_invalid_parameter"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			sql.Named("time", d), sql.Named("user", "hoge"),
+		)
+		var time time.Time
+		var user string
+		require.EqualError(t, row.Scan(&time, &user), "required ordinal parameter, but named parameter is given")
+	})
+}
+
+func TestMock__SuccessWithNamedPlaceholder(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = :time AND s."user" = :user`
+	mockClients["success_with_named_placeholder"] = &mockS3SelectClient{
+		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
+			require.EqualValues(t,
+				`SELECT * FROM S3Object as s WHERE s."time" = '2020-01-01T00:00:00Z' AND s."user" = 'hoge'`,
+				string(*params.Expression),
+			)
+			fmt.Fprintf(w, "2020-01-01T00:00:00Z,hoge\n")
+			return nil
+		},
+	}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"success_with_named_placeholder"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			sql.Named("time", d), sql.Named("user", "hoge"),
+		)
+		var time time.Time
+		var user string
+		require.NoError(t, row.Scan(&time, &user))
+		require.EqualValues(t, d, time)
+		require.Equal(t, "hoge", user)
+	})
+}
+
+func TestMock__FailedWithNamedPlaceholder__MissingParameter(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = :time AND s."user" = :user`
+	mockClients["failed_with_named_placeholder_missing_parameter"] = &mockS3SelectClient{}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"failed_with_named_placeholder_missing_parameter"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			sql.Named("time", d),
+		)
+		var time time.Time
+		var user string
+		require.EqualError(t, row.Scan(&time, &user), "missing named parameter: user")
+	})
+}
+
+func TestMcok__FailedWithNamedPlaceholder__NotUse(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = :time AND s."user" = :user`
+	mockClients["failed_with_named_placeholder_not_use"] = &mockS3SelectClient{}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"failed_with_named_placeholder_not_use"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			sql.Named("time", d), sql.Named("user", "hoge"), sql.Named("age", 12),
+		)
+		var time time.Time
+		var user string
+		require.EqualError(t, row.Scan(&time, &user), "named parameter is not used: age")
+	})
+}
+
+func TestMock__FailedWithNamedPlaceholder__InvalidParameter(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = :time AND s."user" = :user`
+	mockClients["failed_with_named_placeholder_invalid_parameter"] = &mockS3SelectClient{}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"failed_with_named_placeholder_invalid_parameter"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			d, "hoge",
+		)
+		var time time.Time
+		var user string
+		require.EqualError(t, row.Scan(&time, &user), "required named parameter, but ordinal parameter is given")
+	})
+}
+
+func TestMock__FailedMixedNamedAndOrdinalPlaceholder(t *testing.T) {
+	query := `SELECT * FROM S3Object as s WHERE s."time" = ? AND s."user" = :user`
+	mockClients["failed_mixed_named_and_ordinal_placeholder"] = &mockS3SelectClient{}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/data.csv",
+		Format:     S3SelectFormatCSV,
+		ParseTime:  aws.Bool(true),
+		Params:     url.Values{"mock": []string{"failed_mixed_named_and_ordinal_placeholder"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		row := db.QueryRowContext(
+			context.Background(), query,
+			d, sql.Named("user", "hoge"),
+		)
+		var time time.Time
+		var user string
+		require.EqualError(t, row.Scan(&time, &user), "cannot use both named and ordinal parameters")
+	})
+}
