@@ -68,7 +68,7 @@ func TestAWS__SimpleCSVQuery(t *testing.T) {
 		}()
 		columns, err := rows.Columns()
 		require.NoError(t, err)
-		require.EqualValues(t, []string{"_1", "_2"}, columns)
+		require.EqualValues(t, []string{"id", "name"}, columns)
 		actual := make([][]interface{}, 0, 2)
 		for rows.Next() {
 			var (
@@ -118,8 +118,8 @@ func TestAWS__SimpleJSONLinesQuery(t *testing.T) {
 		}()
 		columns, err := rows.Columns()
 		require.NoError(t, err)
-		require.EqualValues(t, []string{"_1", "_2", "_3", "_4"}, columns)
-		actual := make([][]interface{}, 0, 2)
+		require.EqualValues(t, []string{"time", "message", "status", "ttl"}, columns)
+		actual := make([][]interface{}, 0, 4)
 		for rows.Next() {
 			var (
 				timeVal time.Time
@@ -169,13 +169,13 @@ func TestMock__Success(t *testing.T) {
 		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
 			require.Equal(t, "example-com", *params.Bucket)
 			if *params.Key == "csv/1.csv" {
-				fmt.Fprintf(w, "hoge,16,true,1.1,123\n")
-				fmt.Fprintf(w, "fuga,23,false,2.2,456\n")
+				fmt.Fprintf(w, `{"_1":"hoge","_2":16,"_3":true,"_4":1.1,"_5":"123"}`+"\n")
+				fmt.Fprintf(w, `{"_1":"fuga","_2":23,"_3":false,"_4":2.2,"_5":"456"}`+"\n")
 				return nil
 			}
 			if *params.Key == "csv/2.csv" {
-				fmt.Fprintf(w, "piyo,12,true,3.3,789\n")
-				fmt.Fprintf(w, "tora,23,false,4.4,012\n")
+				fmt.Fprintf(w, `{"_1":"piyo","_2":12,"_3":true,"_4":3.3,"_5":"789"}`+"\n")
+				fmt.Fprintf(w, `{"_1":"tora","_2":23,"_3":false,"_4":4.4,"_5":"012"}`+"\n")
 				return nil
 			}
 			return errors.New("unexpected key")
@@ -276,10 +276,10 @@ func TestMock__SuccessSingleObject(t *testing.T) {
 	query := `SELECT * FROM S3Object`
 	mockClients["success_single_object"] = &mockS3SelectClient{
 		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
-			fmt.Fprintf(w, "hoge,16,true,1.1,123\n")
-			fmt.Fprintf(w, "fuga,23,false,2.2,456\n")
-			fmt.Fprintf(w, "piyo,12,true,3.3,789\n")
-			fmt.Fprintf(w, "tora,23,false,4.4,012\n")
+			fmt.Fprintf(w, `{"_1":"hoge","_2":16,"_3":true,"_4":1.1,"_5":"123"}`+"\n")
+			fmt.Fprintf(w, `{"_1":"fuga","_2":23,"_3":false,"_4":2.2,"_5":"456"}`+"\n")
+			fmt.Fprintf(w, `{"_1":"piyo","_2":12,"_3":true,"_4":3.3,"_5":"789"}`+"\n")
+			fmt.Fprintf(w, `{"_1":"tora","_2":23,"_3":false,"_4":4.4,"_5":"012"}`+"\n")
 			return nil
 		},
 	}
@@ -447,7 +447,7 @@ func TestMock__SuccessWithPlaceholder(t *testing.T) {
 				`SELECT * FROM S3Object as s WHERE s."time" = '2020-01-01T00:00:00Z' AND s."user" = 'hoge'`,
 				string(*params.Expression),
 			)
-			fmt.Fprintf(w, "2020-01-01T00:00:00Z,hoge\n")
+			fmt.Fprintf(w, `{"_1":"2020-01-01T00:00:00Z","_2":"hoge"}`+"\n")
 			return nil
 		},
 	}
@@ -554,7 +554,7 @@ func TestMock__SuccessWithNamedPlaceholder(t *testing.T) {
 				`SELECT * FROM S3Object as s WHERE s."time" = '2020-01-01T00:00:00Z' AND s."user" = 'hoge'`,
 				string(*params.Expression),
 			)
-			fmt.Fprintf(w, "2020-01-01T00:00:00Z,hoge\n")
+			fmt.Fprintf(w, `{"_1":"2020-01-01T00:00:00Z","_2":"hoge"}`+"\n")
 			return nil
 		},
 	}
@@ -674,5 +674,122 @@ func TestMock__FailedMixedNamedAndOrdinalPlaceholder(t *testing.T) {
 		var time time.Time
 		var user string
 		require.EqualError(t, row.Scan(&time, &user), "cannot use both named and ordinal parameters")
+	})
+}
+
+func TestMock__SuccessFlexible(t *testing.T) {
+	query := `SELECT * FROM S3Object`
+	mockClients["success"] = &mockS3SelectClient{
+		ListObjectsV2Func: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			require.Equal(t, "example-com", *params.Bucket)
+			require.Equal(t, "csv/", *params.Prefix)
+			// expected 2 calls, 1st call return 1 object, 2nd call return 0 object
+			if params.ContinuationToken == nil {
+				return &s3.ListObjectsV2Output{
+					Contents: []types.Object{
+						{Key: aws.String("csv/1.csv")},
+						{Key: aws.String("csv/2.csv")},
+					},
+					Name:                  aws.String("example-com"),
+					Prefix:                aws.String("csv/"),
+					NextContinuationToken: aws.String("dummy"),
+				}, nil
+			}
+			return &s3.ListObjectsV2Output{
+				Contents: []types.Object{},
+				KeyCount: 1,
+				MaxKeys:  1000,
+				Name:     aws.String("example-com"),
+				Prefix:   aws.String("csv/"),
+			}, nil
+		},
+		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
+			require.Equal(t, "example-com", *params.Bucket)
+			if *params.Key == "csv/1.csv" {
+				fmt.Fprintf(w, `{"name":"hoge","age":16,"job":"enginner"}`+"\n")
+				fmt.Fprintf(w, `{"name":"fuga","age":23,"job":null}`+"\n")
+				return nil
+			}
+			if *params.Key == "csv/2.csv" {
+				fmt.Fprintf(w, `{"name":"piyo","age":12,"authed":true}`+"\n")
+				fmt.Fprintf(w, `{"name":"tora","age":15,"authed":false}`+"\n")
+				return nil
+			}
+			return errors.New("unexpected key")
+		},
+	}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/",
+		Format:     S3SelectFormatCSV,
+		Params:     url.Values{"mock": []string{"success"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		rows, err := db.QueryContext(context.Background(), query)
+		require.NoError(t, err)
+		actualColumns, err := rows.Columns()
+		require.NoError(t, err)
+		require.EqualValues(t, []string{"name", "age", "job", "authed"}, actualColumns)
+		actual := make([]map[string]interface{}, 0, 4)
+		for rows.Next() {
+			var (
+				name   string
+				age    int64
+				job    sql.NullString
+				authed sql.NullBool
+			)
+			err := rows.Scan(&name, &age, &job, &authed)
+			require.NoError(t, err)
+			actual = append(actual, map[string]interface{}{
+				"name":   name,
+				"age":    age,
+				"job":    job,
+				"authed": authed,
+			})
+			t.Log(name, age, job, authed)
+		}
+		require.Equal(t, []map[string]interface{}{
+			{
+				"name": "hoge",
+				"age":  int64(16),
+				"job": sql.NullString{
+					String: "enginner",
+					Valid:  true,
+				},
+				"authed": sql.NullBool{
+					Bool:  false,
+					Valid: false,
+				},
+			},
+			{
+				"name": "fuga",
+				"age":  int64(23),
+				"job":  sql.NullString{},
+				"authed": sql.NullBool{
+					Bool:  false,
+					Valid: false,
+				},
+			},
+			{
+				"name": "piyo",
+				"age":  int64(12),
+				"job":  sql.NullString{},
+				"authed": sql.NullBool{
+					Bool:  true,
+					Valid: true,
+				},
+			},
+			{
+				"name": "tora",
+				"age":  int64(15),
+				"job":  sql.NullString{},
+				"authed": sql.NullBool{
+					Bool:  false,
+					Valid: true,
+				},
+			},
+		}, actual)
 	})
 }
