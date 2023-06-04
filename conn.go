@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +15,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/iancoleman/orderedmap"
 	"github.com/mashiike/s3-select-sql-driver/lexer"
+	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -89,21 +91,55 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 		}
 		return nil
 	})
-	rows := make([][]string, 0)
+	columns := make([]string, 0)
+	rows := make([][]interface{}, 0)
 	eg.Go(func() error {
-		reader := csv.NewReader(pr)
+		defer pr.Close()
+		dec := json.NewDecoder(pr)
 		for {
 			select {
+			case <-conn.aliveCh:
+				return sql.ErrConnDone
 			case <-egctx.Done():
 				return nil
 			default:
 			}
-			row, err := reader.Read()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
+			o := orderedmap.New()
+			if err := dec.Decode(o); err != nil {
+				if err == io.EOF {
+					return nil
+				}
 				return err
+			}
+			keys := o.Keys()
+			for _, key := range keys {
+				// containes key in columns check and if not contains then append
+				if lo.Contains(columns, key) {
+					continue
+				}
+				columns = append(columns, key)
+			}
+			row := make([]interface{}, 0, len(columns))
+			for _, key := range columns {
+				v, ok := o.Get(key)
+				if !ok {
+					row = append(row, nil)
+					continue
+				}
+				switch v := v.(type) {
+				case *orderedmap.OrderedMap:
+					b, err := json.Marshal(v)
+					if err != nil {
+						return err
+					}
+					var nv interface{}
+					if err := json.Unmarshal(b, &nv); err != nil {
+						return err
+					}
+					row = append(row, nv)
+				default:
+					row = append(row, v)
+				}
 			}
 			rows = append(rows, row)
 		}
@@ -130,6 +166,8 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 				select {
 				case <-conn.aliveCh:
 					return sql.ErrConnDone
+				case <-egctx.Done():
+					return nil
 				default:
 				}
 				output, err := p.NextPage(ctx)
@@ -154,7 +192,7 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 	if conn.cfg.ParseTime != nil {
 		parseTime = *conn.cfg.ParseTime
 	}
-	return newRows(rows, parseTime), nil
+	return newRows(columns, rows, parseTime), nil
 }
 
 func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args []driver.NamedValue, contentCh <-chan contentInfo, w io.Writer) error {
@@ -162,6 +200,8 @@ func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args
 		select {
 		case <-conn.aliveCh:
 			return sql.ErrConnDone
+		case <-ctx.Done():
+			return nil
 		default:
 		}
 		inputSerialization, err := conn.cfg.newInputSeliarization()
@@ -174,11 +214,7 @@ func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args
 			Expression:     aws.String(query),
 			ExpressionType: types.ExpressionTypeSql,
 			OutputSerialization: &types.OutputSerialization{
-				CSV: &types.CSVOutput{
-					FieldDelimiter:  aws.String(","),
-					RecordDelimiter: aws.String("\n"),
-					QuoteFields:     types.QuoteFieldsAsneeded,
-				},
+				JSON: &types.JSONOutput{},
 			},
 			InputSerialization: inputSerialization,
 		}

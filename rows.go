@@ -2,22 +2,21 @@ package s3selectsqldriver
 
 import (
 	"database/sql/driver"
-	"fmt"
 	"io"
 	"time"
-
-	"github.com/samber/lo"
 )
 
 type s3SelectRows struct {
 	parseTime bool
-	rows      [][]string
+	columns   []string
+	rows      [][]interface{}
 	index     int
 }
 
-func newRows(rows [][]string, parseTime bool) *s3SelectRows {
+func newRows(columns []string, rows [][]interface{}, parseTime bool) *s3SelectRows {
 	return &s3SelectRows{
 		parseTime: parseTime,
+		columns:   columns,
 		rows:      rows,
 	}
 }
@@ -30,9 +29,7 @@ func (rows *s3SelectRows) Columns() []string {
 	if len(rows.rows) == 0 {
 		return []string{}
 	}
-	return lo.Map(rows.rows[0], func(_ string, i int) string {
-		return fmt.Sprintf("_%d", i+1)
-	})
+	return rows.columns
 }
 
 func (rows *s3SelectRows) Next(dest []driver.Value) error {
@@ -45,8 +42,8 @@ func (rows *s3SelectRows) Next(dest []driver.Value) error {
 			dest[i] = nil
 			continue
 		}
-		if rows.parseTime {
-			if t, ok := parseTime(row[i]); ok {
+		if str, ok := row[i].(string); ok && rows.parseTime {
+			if t, ok := parseTime(str); ok {
 				dest[i] = t
 				continue
 			}
