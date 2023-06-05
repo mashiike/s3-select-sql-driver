@@ -168,3 +168,39 @@ SELECT * FROM S3Object as s`
 	require.EqualValues(t, expected, tokens)
 	require.Equal(t, query, tokens.String())
 }
+
+func TestLexer__WithFunction(t *testing.T) {
+	query := `SELECT * FROM s3object s WHERE CAST(s._N as FLOAT) > 12.34`
+	lexer := NewLexer(query)
+	tokens, err := lexer.Lex()
+	require.NoError(t, err)
+	expected := Tokens{
+		{Kind: KindIdentifier, Value: "SELECT"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindSymbol, Value: "*"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "FROM"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "s3object"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "s"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "WHERE"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "CAST"},
+		{Kind: KindSymbol, Value: "("},
+		{Kind: KindIdentifier, Value: "s._N"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "as"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "FLOAT"},
+		{Kind: KindSymbol, Value: ")"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindSymbol, Value: ">"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindNumber, Value: "12.34"},
+		{Kind: KindEOF, Value: ""},
+	}
+	require.EqualValues(t, expected, tokens)
+	require.Equal(t, query, tokens.String())
+}

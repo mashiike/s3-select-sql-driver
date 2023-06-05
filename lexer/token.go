@@ -279,6 +279,7 @@ func (l *Lexer) lexNamedPlaceholder() error {
 
 func (l *Lexer) lexNumber() error {
 	start := l.pos
+	var isDotFound bool
 Loop:
 	for {
 		l.pos++
@@ -287,6 +288,15 @@ Loop:
 		}
 		switch l.input[l.pos] {
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			continue
+		case '.':
+			if isDotFound {
+				return &LexError{
+					Pos: l.pos,
+					Err: fmt.Errorf("unexpected dot"),
+				}
+			}
+			isDotFound = true
 			continue
 		default:
 			break Loop
