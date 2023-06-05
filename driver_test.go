@@ -140,6 +140,64 @@ func TestAWS__SimpleJSONLinesQuery(t *testing.T) {
 	})
 }
 
+func TestAWS__JSONLinesLimit1(t *testing.T) {
+	if os.Getenv("TEST_BUCKET_NAME") == "" {
+		t.Log("TEST_BUCKET_NAME is empty")
+		t.SkipNow()
+	}
+	if os.Getenv("TEST_OBJECT_PATH_PREFIX") == "" {
+		t.Log("TEST_OBJECT_PATH_PREFIX is empty")
+		t.SkipNow()
+	}
+	dsn := (&S3SelectConfig{
+		BucketName: os.Getenv("TEST_BUCKET_NAME"),
+		ObjectKey:  os.Getenv("TEST_OBJECT_PATH_PREFIX") + "json_lines/",
+		Format:     S3SelectFormatJSONL,
+		ParseTime:  aws.Bool(true),
+	}).String()
+	runTestsWithDB(t, dsn, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		sql := `-- this is comment
+SELECT
+	s."time",
+	s."message",
+	s."status",
+	s."ttl"
+FROM S3Object as s
+WHERE s."time" <= ?
+AND s.status = ?
+LIMIT 1`
+		rows, err := db.QueryContext(context.Background(),
+			sql, time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC), 200,
+		)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, rows.Close())
+		}()
+		columns, err := rows.Columns()
+		require.NoError(t, err)
+		require.EqualValues(t, []string{"time", "message", "status", "ttl"}, columns)
+		actual := make([][]interface{}, 0, 4)
+		for rows.Next() {
+			var (
+				timeVal time.Time
+				msg     string
+				status  int64
+				ttl     float64
+			)
+			err := rows.Scan(&timeVal, &msg, &status, &ttl)
+			require.NoError(t, err)
+			actual = append(actual, []interface{}{
+				timeVal, msg, status, ttl,
+			})
+		}
+		require.ElementsMatch(t, [][]interface{}{
+			{time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), "Hello World!", int64(200), float64(0.5)},
+		}, actual)
+	})
+}
+
 func TestMock__Success(t *testing.T) {
 	query := `SELECT * FROM S3Object`
 	mockClients["success"] = &mockS3SelectClient{

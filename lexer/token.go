@@ -33,6 +33,7 @@ const (
 	KindString
 	KindNumber
 	KindSymbol
+	KindComment
 )
 
 func (k Kind) String() string {
@@ -57,6 +58,8 @@ func (k Kind) String() string {
 		return "number"
 	case KindSymbol:
 		return "symbol"
+	case KindComment:
+		return "comment"
 	default:
 		return "undefined"
 	}
@@ -101,11 +104,70 @@ func (l *Lexer) lex() error {
 		return l.lexNamedPlaceholder()
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		return l.lexNumber()
-	case '(', ')', ',', ';', '[', ']', '{', '}', '+', '-', '*', '/', '%', '^', '=', '<', '>', '&', '|', '~', '!':
+	case '-':
+		// if -- is comment then lexComment
+		// else lexSymbol
+		if l.pos+1 < len(l.input) && l.input[l.pos+1] == '-' {
+			return l.lexComment()
+		}
+		return l.lexSymbol()
+	case '/':
+		// if /* is comment then lexComment
+		// else lexSymbol
+		if l.pos+1 < len(l.input) && l.input[l.pos+1] == '*' {
+			return l.lexComment()
+		}
+		return l.lexSymbol()
+	case '(', ')', ',', ';', '[', ']', '{', '}', '+', '*', '%', '^', '=', '<', '>', '&', '|', '~', '!':
 		return l.lexSymbol()
 	default:
 		return l.lexIdentifier()
 	}
+}
+
+func (l *Lexer) lexComment() error {
+	// check comment type /* */ or --
+	start := l.pos
+	l.pos++
+	if l.pos >= len(l.input) {
+		return &LexError{
+			Pos: l.pos,
+			Err: fmt.Errorf("unexpected eof"),
+		}
+	}
+	var isLineComment bool
+	var isBlockComment bool
+	if l.input[l.pos] == '-' {
+		isLineComment = true
+	}
+	if l.input[l.pos] == '*' {
+		isBlockComment = true
+	}
+	if !isLineComment && !isBlockComment {
+		return &LexError{
+			Pos: l.pos,
+			Err: fmt.Errorf("unexpected comment"),
+		}
+	}
+Loop:
+	for {
+		l.pos++
+		if l.pos >= len(l.input) {
+			break
+		}
+		if isLineComment && (l.input[l.pos] == '\n' || l.input[l.pos] == '\r') {
+			break Loop
+		}
+		if isBlockComment && l.input[l.pos] == '*' && l.pos+1 < len(l.input) && l.input[l.pos+1] == '/' {
+			l.pos += 2
+			break Loop
+		}
+	}
+	l.tokens = append(l.tokens, Token{
+		Kind:  KindComment,
+		Value: l.input[start:l.pos],
+	})
+	return nil
 }
 
 func (l *Lexer) lexSpace() error {
@@ -217,6 +279,7 @@ func (l *Lexer) lexNamedPlaceholder() error {
 
 func (l *Lexer) lexNumber() error {
 	start := l.pos
+	var isDotFound bool
 Loop:
 	for {
 		l.pos++
@@ -225,6 +288,15 @@ Loop:
 		}
 		switch l.input[l.pos] {
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			continue
+		case '.':
+			if isDotFound {
+				return &LexError{
+					Pos: l.pos,
+					Err: fmt.Errorf("unexpected dot"),
+				}
+			}
+			isDotFound = true
 			continue
 		default:
 			break Loop
