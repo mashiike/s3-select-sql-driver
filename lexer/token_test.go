@@ -139,3 +139,29 @@ func TestLexer__TableNameWithPath(t *testing.T) {
 	require.EqualValues(t, expected, tokens)
 	require.Equal(t, query, tokens.String())
 }
+
+func TestLexer__WithComment(t *testing.T) {
+	query := `-- comment
+SELECT * FROM S3Object as s`
+	lexer := NewLexer(query)
+	tokens, err := lexer.Lex()
+	require.NoError(t, err)
+	expected := Tokens{
+		{Kind: KindComment, Value: "-- comment"},
+		{Kind: KindNewline, Value: "\n"},
+		{Kind: KindIdentifier, Value: "SELECT"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindSymbol, Value: "*"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "FROM"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "S3Object"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "as"},
+		{Kind: KindSpace, Value: " "},
+		{Kind: KindIdentifier, Value: "s"},
+		{Kind: KindEOF, Value: ""},
+	}
+	require.EqualValues(t, expected, tokens)
+	require.Equal(t, query, tokens.String())
+}

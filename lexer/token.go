@@ -33,6 +33,7 @@ const (
 	KindString
 	KindNumber
 	KindSymbol
+	KindComment
 )
 
 func (k Kind) String() string {
@@ -57,6 +58,8 @@ func (k Kind) String() string {
 		return "number"
 	case KindSymbol:
 		return "symbol"
+	case KindComment:
+		return "comment"
 	default:
 		return "undefined"
 	}
@@ -101,11 +104,38 @@ func (l *Lexer) lex() error {
 		return l.lexNamedPlaceholder()
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		return l.lexNumber()
-	case '(', ')', ',', ';', '[', ']', '{', '}', '+', '-', '*', '/', '%', '^', '=', '<', '>', '&', '|', '~', '!':
+	case '-':
+		// if -- is comment then lexComment
+		// else lexSymbol
+		if l.pos+1 < len(l.input) && l.input[l.pos+1] == '-' {
+			return l.lexComment()
+		}
+		return l.lexSymbol()
+	case '(', ')', ',', ';', '[', ']', '{', '}', '+', '*', '/', '%', '^', '=', '<', '>', '&', '|', '~', '!':
 		return l.lexSymbol()
 	default:
 		return l.lexIdentifier()
 	}
+}
+
+func (l *Lexer) lexComment() error {
+	start := l.pos
+Loop:
+	for {
+		l.pos++
+		if l.pos >= len(l.input) {
+			break
+		}
+		switch l.input[l.pos] {
+		case '\n', '\r':
+			break Loop
+		}
+	}
+	l.tokens = append(l.tokens, Token{
+		Kind:  KindComment,
+		Value: l.input[start:l.pos],
+	})
+	return nil
 }
 
 func (l *Lexer) lexSpace() error {
