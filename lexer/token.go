@@ -111,7 +111,14 @@ func (l *Lexer) lex() error {
 			return l.lexComment()
 		}
 		return l.lexSymbol()
-	case '(', ')', ',', ';', '[', ']', '{', '}', '+', '*', '/', '%', '^', '=', '<', '>', '&', '|', '~', '!':
+	case '/':
+		// if /* is comment then lexComment
+		// else lexSymbol
+		if l.pos+1 < len(l.input) && l.input[l.pos+1] == '*' {
+			return l.lexComment()
+		}
+		return l.lexSymbol()
+	case '(', ')', ',', ';', '[', ']', '{', '}', '+', '*', '%', '^', '=', '<', '>', '&', '|', '~', '!':
 		return l.lexSymbol()
 	default:
 		return l.lexIdentifier()
@@ -119,15 +126,40 @@ func (l *Lexer) lex() error {
 }
 
 func (l *Lexer) lexComment() error {
+	// check comment type /* */ or --
 	start := l.pos
+	l.pos++
+	if l.pos >= len(l.input) {
+		return &LexError{
+			Pos: l.pos,
+			Err: fmt.Errorf("unexpected eof"),
+		}
+	}
+	var isLineComment bool
+	var isBlockComment bool
+	if l.input[l.pos] == '-' {
+		isLineComment = true
+	}
+	if l.input[l.pos] == '*' {
+		isBlockComment = true
+	}
+	if !isLineComment && !isBlockComment {
+		return &LexError{
+			Pos: l.pos,
+			Err: fmt.Errorf("unexpected comment"),
+		}
+	}
 Loop:
 	for {
 		l.pos++
 		if l.pos >= len(l.input) {
 			break
 		}
-		switch l.input[l.pos] {
-		case '\n', '\r':
+		if isLineComment && (l.input[l.pos] == '\n' || l.input[l.pos] == '\r') {
+			break Loop
+		}
+		if isBlockComment && l.input[l.pos] == '*' && l.pos+1 < len(l.input) && l.input[l.pos+1] == '/' {
+			l.pos += 2
 			break Loop
 		}
 	}

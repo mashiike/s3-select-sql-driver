@@ -141,13 +141,16 @@ func TestLexer__TableNameWithPath(t *testing.T) {
 }
 
 func TestLexer__WithComment(t *testing.T) {
-	query := `-- comment
+	query := `-- line comment
+/* block comment */
 SELECT * FROM S3Object as s`
 	lexer := NewLexer(query)
 	tokens, err := lexer.Lex()
 	require.NoError(t, err)
 	expected := Tokens{
-		{Kind: KindComment, Value: "-- comment"},
+		{Kind: KindComment, Value: "-- line comment"},
+		{Kind: KindNewline, Value: "\n"},
+		{Kind: KindComment, Value: "/* block comment */"},
 		{Kind: KindNewline, Value: "\n"},
 		{Kind: KindIdentifier, Value: "SELECT"},
 		{Kind: KindSpace, Value: " "},
