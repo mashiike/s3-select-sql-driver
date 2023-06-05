@@ -851,3 +851,106 @@ func TestMock__SuccessFlexible(t *testing.T) {
 		}, actual)
 	})
 }
+
+func TestMock__SuccessGlobalLimit(t *testing.T) {
+	query := `SELECT * FROM S3Object LIMIT 5`
+	i := 0
+	mockClients["success_global_llimit"] = &mockS3SelectClient{
+		ListObjectsV2Func: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			i += 5
+			return &s3.ListObjectsV2Output{
+				Contents: []types.Object{
+					{Key: aws.String(fmt.Sprintf("csv/%d.csv", i-4))},
+					{Key: aws.String(fmt.Sprintf("csv/%d.csv", i-3))},
+					{Key: aws.String(fmt.Sprintf("csv/%d.csv", i-2))},
+					{Key: aws.String(fmt.Sprintf("csv/%d.csv", i-1))},
+					{Key: aws.String(fmt.Sprintf("csv/%d.csv", i))},
+				},
+				Name:                  aws.String("example-com"),
+				Prefix:                aws.String("csv/"),
+				NextContinuationToken: aws.String("dummy"),
+			}, nil
+		},
+		SelectObjectContentWithWriterFunc: func(ctx context.Context, w io.Writer, params *s3.SelectObjectContentInput, optFns ...func(*s3.Options)) error {
+			require.Equal(t, "example-com", *params.Bucket)
+			fmt.Fprintf(w, `{"name":"hoge","age":16,"job":"enginner"}`+"\n")
+			fmt.Fprintf(w, `{"name":"fuga","age":25,"job":"director"}`+"\n")
+			return nil
+		},
+	}
+	mockDSN := (&S3SelectConfig{
+		BucketName: "example-com",
+		ObjectKey:  "csv/",
+		Format:     S3SelectFormatCSV,
+		Params:     url.Values{"mock": []string{"success_global_llimit"}},
+	}).String()
+	runTestsWithDB(t, mockDSN, func(t *testing.T, db *sql.DB) {
+		restore := requireNoErrorLog(t)
+		defer restore()
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		rows, err := db.QueryContext(ctx, query)
+		require.NoError(t, err)
+		actualColumns, err := rows.Columns()
+		require.NoError(t, err)
+		require.EqualValues(t, []string{"name", "age", "job"}, actualColumns)
+		actual := make([]map[string]interface{}, 0, 4)
+		for rows.Next() {
+			var (
+				name string
+				age  int64
+				job  sql.NullString
+			)
+			err := rows.Scan(&name, &age, &job)
+			require.NoError(t, err)
+			actual = append(actual, map[string]interface{}{
+				"name": name,
+				"age":  age,
+				"job":  job,
+			})
+			t.Log(name, age, job)
+		}
+		require.Equal(t, []map[string]interface{}{
+			{
+				"name": "hoge",
+				"age":  int64(16),
+				"job": sql.NullString{
+					String: "enginner",
+					Valid:  true,
+				},
+			},
+			{
+				"name": "fuga",
+				"age":  int64(25),
+				"job": sql.NullString{
+					String: "director",
+					Valid:  true,
+				},
+			},
+			{
+				"name": "hoge",
+				"age":  int64(16),
+				"job": sql.NullString{
+					String: "enginner",
+					Valid:  true,
+				},
+			},
+			{
+				"name": "fuga",
+				"age":  int64(25),
+				"job": sql.NullString{
+					String: "director",
+					Valid:  true,
+				},
+			},
+			{
+				"name": "hoge",
+				"age":  int64(16),
+				"job": sql.NullString{
+					String: "enginner",
+					Valid:  true,
+				},
+			},
+		}, actual)
+	})
+}

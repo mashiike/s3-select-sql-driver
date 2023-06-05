@@ -71,9 +71,10 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 	if conn.isClosed {
 		return nil, sql.ErrConnDone
 	}
-	if len(args) > 0 {
+	var limitValue *int
+	if len(args) > 0 || strings.Contains(strings.ToUpper(query), "LIMIT") {
 		var err error
-		query, err = conn.rewriteQuery(query, args)
+		query, limitValue, err = conn.rewriteQuery(query, args)
 		if err != nil {
 			return nil, err
 		}
@@ -82,11 +83,12 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 
 	eg, egctx := errgroup.WithContext(ctx)
 	contentCh := make(chan contentInfo, 100)
+	limitExceededCh := make(chan struct{})
 	pr, pw := io.Pipe()
 
 	eg.Go(func() error {
 		defer pw.Close()
-		if err := conn.s3SelectWorker(egctx, query, args, contentCh, pw); err != nil {
+		if err := conn.s3SelectWorker(egctx, query, args, contentCh, pw, limitExceededCh); err != nil {
 			return err
 		}
 		return nil
@@ -142,7 +144,14 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 				}
 			}
 			rows = append(rows, row)
+			if limitValue != nil && len(rows) >= *limitValue {
+				close(limitExceededCh)
+				break
+			}
 		}
+		// vacume io.Reader
+		io.Copy(io.Discard, pr)
+		return nil
 	})
 
 	if conn.cfg.ObjectKey != "" {
@@ -195,11 +204,13 @@ func (conn *s3SelectConn) QueryContext(ctx context.Context, query string, args [
 	return newRows(columns, rows, parseTime), nil
 }
 
-func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args []driver.NamedValue, contentCh <-chan contentInfo, w io.Writer) error {
+func (conn *s3SelectConn) s3SelectWorker(ctx context.Context, query string, args []driver.NamedValue, contentCh <-chan contentInfo, w io.Writer, limitExceededCh <-chan struct{}) error {
 	for content := range contentCh {
 		select {
 		case <-conn.aliveCh:
 			return sql.ErrConnDone
+		case <-limitExceededCh:
+			return nil
 		case <-ctx.Done():
 			return nil
 		default:
@@ -230,11 +241,11 @@ func (conn *s3SelectConn) ExecContext(ctx context.Context, query string, args []
 	return nil, fmt.Errorf("exec %w", ErrNotSupported)
 }
 
-func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (string, error) {
+func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (string, *int, error) {
 	l := lexer.NewLexer(query)
 	tokens, err := l.Lex()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var isNamedArgs, isOrdinalArgs bool
 	argsByName := make(map[string]driver.NamedValue)
@@ -248,57 +259,74 @@ func (conn *s3SelectConn) rewriteQuery(query string, args []driver.NamedValue) (
 		argsByName[":"+arg.Name] = arg
 	}
 	if isNamedArgs && isOrdinalArgs {
-		return "", fmt.Errorf("cannot use both named and ordinal parameters")
+		return "", nil, fmt.Errorf("cannot use both named and ordinal parameters")
 	}
 	var builder strings.Builder
 	var i int
+	var limitFound bool
+	var limitValue *int
 	for _, token := range tokens {
 		switch token.Kind {
 		case lexer.KindNamedPlaceholder:
 			if !isNamedArgs {
-				return "", errors.New("required named parameter, but ordinal parameter is given")
+				return "", nil, errors.New("required named parameter, but ordinal parameter is given")
 			}
 			arg, ok := argsByName[token.Value]
 			if !ok {
-				return "", fmt.Errorf("missing named parameter: %s", strings.TrimPrefix(token.Value, ":"))
+				return "", nil, fmt.Errorf("missing named parameter: %s", strings.TrimPrefix(token.Value, ":"))
 			}
 			s, err := conn.convertNamedArgToString(arg)
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 			usedByName[token.Value] = true
 			builder.WriteString(s)
 		case lexer.KindPlaceholder:
 			if !isOrdinalArgs {
-				return "", errors.New("required ordinal parameter, but named parameter is given")
+				return "", nil, errors.New("required ordinal parameter, but named parameter is given")
 			}
 			if i >= len(args) {
-				return "", fmt.Errorf("required %d parameters, but %d parameters are given", i+1, len(args))
+				return "", nil, fmt.Errorf("required %d parameters, but %d parameters are given", i+1, len(args))
 			}
 			arg := args[i]
 			i++
 			s, err := conn.convertNamedArgToString(arg)
 			if err != nil {
-				return "", fmt.Errorf("failed to convert parameter %d: %w", i, err)
+				return "", nil, fmt.Errorf("failed to convert parameter %d: %w", i, err)
 			}
 			builder.WriteString(s)
+		case lexer.KindIdentifier:
+			if !limitFound && strings.ToUpper(token.Value) == "LIMIT" {
+				limitFound = true
+			}
+			builder.WriteString(token.Value)
+		case lexer.KindNumber:
+			if limitFound {
+				v, err := strconv.Atoi(token.Value)
+				if err != nil {
+					return "", nil, fmt.Errorf("failed to parse limit value: %w", err)
+				}
+				limitValue = &v
+				limitFound = false
+			}
+			builder.WriteString(token.Value)
 		case lexer.KindEOF:
 			if isOrdinalArgs && i < len(args) {
-				return "", fmt.Errorf("required %d parameters, but %d parameters are given", i, len(args))
+				return "", nil, fmt.Errorf("required %d parameters, but %d parameters are given", i, len(args))
 			}
 			if isNamedArgs {
 				for _, arg := range args {
 					if !usedByName[":"+arg.Name] {
-						return "", fmt.Errorf("named parameter is not used: %s", arg.Name)
+						return "", nil, fmt.Errorf("named parameter is not used: %s", arg.Name)
 					}
 				}
 			}
-			return builder.String(), nil
+			return builder.String(), limitValue, err
 		default:
 			builder.WriteString(token.Value)
 		}
 	}
-	return "", fmt.Errorf("unexpected EOF query: %s", query)
+	return "", nil, fmt.Errorf("unexpected EOF query: %s", query)
 }
 
 func (conn *s3SelectConn) convertNamedArgToString(arg driver.NamedValue) (string, error) {
