@@ -118,6 +118,25 @@ and can set DSN query parameter(json base64 encoded)
 s3://example-com/hoge.csv?input_serialization=ewogICJDU1YiOiB7CiAgICAiRmlsZUhlYWRlckluZm8iOiAiTk9ORSIsCiAgICAiUmVjb3JkRGVsaW1pdGVyIjogIlxuIiwKICAgICJGaWVsZERlbGltaXRlciI6ICIsIiwKICAgICJRdW90ZUNoYXJhY3RlciI6ICJcIiIsCiAgICAiUXVvdGVFc2NhcGVDaGFyYWN0ZXIiOiAiXCIiLAogICAgIkNvbW1lbnRzIjogIiMiLAogICAgIkFsbG93UXVvdGVkUmVjb3JkRGVsaW1pdGVyIjogZmFsc2UKICB9LAogICJDb21wcmVzc2lvblR5cGUiOiAiTk9ORSIKfQo
 ```
 
+### Prefix Search and LIMIT clause 
+
+S3 Select SQL driver supports prefix search and LIMIT clause.
+for example:
+DSN is `s3://example-com/data/?format=csv&compression_type=gzip`
+Query is `SELECT * FROM s3object s LIMIT 10`
+
+S3 Select SQL driver search `s3://example-com/data/` prefix and get 10 objects.
+case of following objects in bucket.
+
+```
+s3://example-com/data/2020-01-01.csv.gz
+s3://example-com/data/2020-01-02.csv.gz
+s3://example-com/data/2020-01-03.csv.gz
+s3://example-com/data/2020-01-04.csv.gz
+...
+```
+
+each object is 5 rows, execute S3 Select object is `2020-01-01.csv.gz` and `2020-01-02.csv.gz` and get 10 rows.
 
 ## LICENSE
 
