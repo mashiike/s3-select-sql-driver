@@ -39,7 +39,7 @@ type S3SelectConfig struct {
 	ObjectKeyPrefix    string
 	Format             S3SelectFormat
 	CompressionType    S3SelectCompressionType
-	InputSilialization *types.InputSerialization
+	InputSerialization *types.InputSerialization
 	ParseTime          *bool
 	Params             url.Values
 	S3OptFns           []func(*s3.Options)
@@ -77,8 +77,8 @@ func (cfg *S3SelectConfig) String() string {
 	} else {
 		params.Del("parse_time")
 	}
-	if cfg.InputSilialization != nil {
-		bs, err := json.Marshal(cfg.InputSilialization)
+	if cfg.InputSerialization != nil {
+		bs, err := json.Marshal(cfg.InputSerialization)
 		if err == nil {
 			params.Add("input_serialization", base64.URLEncoding.EncodeToString(bs))
 		}
@@ -151,7 +151,7 @@ func (cfg *S3SelectConfig) setParams(params url.Values) error {
 		if err := json.Unmarshal(bs, &inputSerialization); err != nil {
 			return fmt.Errorf("unmarshal input_serialization: %w", err)
 		}
-		cfg.InputSilialization = &inputSerialization
+		cfg.InputSerialization = &inputSerialization
 		cfg.Params.Del("input_serialization")
 		inputSerializationSet = true
 		cfg.CompressionType = ""
@@ -241,8 +241,8 @@ func (cfg *S3SelectConfig) WithRegion(region string) *S3SelectConfig {
 }
 
 func (cfg *S3SelectConfig) newInputSeliarization() (*types.InputSerialization, error) {
-	if cfg.InputSilialization != nil {
-		return cfg.InputSilialization, nil
+	if cfg.InputSerialization != nil {
+		return cfg.InputSerialization, nil
 	}
 	var ret *types.InputSerialization
 	switch cfg.Format {
