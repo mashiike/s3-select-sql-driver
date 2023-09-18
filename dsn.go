@@ -78,15 +78,21 @@ func (cfg *S3SelectConfig) String() string {
 		params.Del("parse_time")
 	}
 	if cfg.InputSerialization != nil {
-		bs, err := json.Marshal(cfg.InputSerialization)
-		if err == nil {
-			params.Add("input_serialization", base64.URLEncoding.EncodeToString(bs))
-		}
+		SetInputSerializationToURLValues(params, cfg.InputSerialization)
 	} else {
 		params.Del("input_serialization")
 	}
 	u.RawQuery = params.Encode()
 	return u.String()
+}
+
+func SetInputSerializationToURLValues(params url.Values, inputSerialization *types.InputSerialization) error {
+	bs, err := json.Marshal(inputSerialization)
+	if err != nil {
+		return fmt.Errorf("marshal input_serialization: %w", err)
+	}
+	params.Set("input_serialization", base64.URLEncoding.EncodeToString(bs))
+	return nil
 }
 
 func (cfg *S3SelectConfig) setParams(params url.Values) error {
