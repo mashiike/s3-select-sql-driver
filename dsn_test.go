@@ -99,7 +99,7 @@ func TestS3SelectConfig__ParseDSN(t *testing.T) {
 			expected: (&S3SelectConfig{
 				BucketName: "example-com",
 				ObjectKey:  "csv/data.gz",
-				InputSilialization: &types.InputSerialization{
+				InputSerialization: &types.InputSerialization{
 					CompressionType: types.CompressionTypeGzip,
 					CSV: &types.CSVInput{
 						FileHeaderInfo:       types.FileHeaderInfoNone,
