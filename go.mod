@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.18.39
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.38.5
 	github.com/iancoleman/orderedmap v0.3.0
-	github.com/samber/lo v1.38.1
+	github.com/samber/lo v1.39.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/sync v0.3.0
 )
